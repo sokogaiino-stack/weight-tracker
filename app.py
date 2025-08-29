@@ -9,6 +9,58 @@ from dateutil.relativedelta import relativedelta
 
 st.set_page_config(page_title="体重トラッカー", page_icon="📈", layout="centered")
 
+# ====== UI polish: CSS（スマホ最適化＆カード風） ======
+st.markdown("""
+<style>
+/* 全体の余白・フォントサイズ */
+html, body, [class*="css"]  {
+  font-size: 16px;
+}
+
+/* タイトルの間隔 */
+h1, h2, h3 { margin-bottom: .6rem; }
+
+/* Streamlitのフッター/メニューを小さく */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+
+/* 入力とボタンの間隔 */
+.block-container { padding-top: 1rem; padding-bottom: 2rem; }
+
+/* カードっぽいボックス */
+.card {
+  padding: 1rem 1rem;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(2,6,23,0.06);
+  border: 1px solid rgba(2,6,23,0.06);
+  margin-bottom: 1rem;
+}
+
+/* ボタンの押しやすさ（モバイル） */
+.stButton>button {
+  height: 48px;
+  border-radius: 12px;
+  font-weight: 600;
+}
+
+/* 入力の高さ */
+.stNumberInput input, .stTextInput input, .stTextInput textarea {
+  border-radius: 10px;
+  height: 44px;
+}
+
+/* グラフのラベル詰まり対策（モバイル） */
+@media (max-width: 480px) {
+  .stPlotlyChart { margin-left: -8px; margin-right: -8px; }
+  h1 { font-size: 1.3rem; }
+  h2 { font-size: 1.1rem; }
+  h3 { font-size: 1.0rem; }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 # ====== Secrets から読み込み ======
 svc_json = st.secrets["GSPREAD_SERVICE_ACCOUNT_JSON"]     # Secrets: [GSPREAD_SERVICE_ACCOUNT_JSON]
 SPREADSHEET_URL = st.secrets["SPREADSHEET_URL"]           # Secrets: SPREADSHEET_URL
