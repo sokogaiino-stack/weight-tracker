@@ -7,27 +7,21 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 
+# -----------------------------
+# 基本設定
+# -----------------------------
 st.set_page_config(page_title="体重トラッカー", page_icon="📈", layout="centered")
 
-# ====== UI polish: CSS（スマホ最適化＆カード風） ======
+# UIを整えるCSS（モバイル最適化 & カード風）
 st.markdown("""
 <style>
-/* 全体の余白・フォントサイズ */
-html, body, [class*="css"]  {
-  font-size: 16px;
-}
-
-/* タイトルの間隔 */
+html, body, [class*="css"] { font-size: 16px; }
 h1, h2, h3 { margin-bottom: .6rem; }
-
-/* Streamlitのフッター/メニューを小さく */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-
-/* 入力とボタンの間隔 */
 .block-container { padding-top: 1rem; padding-bottom: 2rem; }
 
-/* カードっぽいボックス */
+/* カード風コンテナ */
 .card {
   padding: 1rem 1rem;
   border-radius: 14px;
@@ -37,20 +31,20 @@ footer { visibility: hidden; }
   margin-bottom: 1rem;
 }
 
-/* ボタンの押しやすさ（モバイル） */
-.stButton>button {
+/* ボタン */
+.stButton>button, .stLinkButton>button {
   height: 48px;
   border-radius: 12px;
   font-weight: 600;
 }
 
-/* 入力の高さ */
+/* 入力欄 */
 .stNumberInput input, .stTextInput input, .stTextInput textarea {
   border-radius: 10px;
   height: 44px;
 }
 
-/* グラフのラベル詰まり対策（モバイル） */
+/* グラフの余白（モバイル） */
 @media (max-width: 480px) {
   .stPlotlyChart { margin-left: -8px; margin-right: -8px; }
   h1 { font-size: 1.3rem; }
@@ -60,13 +54,21 @@ footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
+# -----------------------------
+# Secrets から読み込み
+# -----------------------------
+# Streamlit Cloud の Secrets に以下を設定してある前提
+# SPREADSHEET_URL = "https://docs.google.com/spreadsheets/..."
+# ADMIN_CODE = "admin123" など任意
+# [GSPREAD_SERVICE_ACCOUNT_JSON]
+# ... サービスアカウントのJSON中身 ...
+svc_json = st.secrets["GSPREAD_SERVICE_ACCOUNT_JSON"]
+SPREADSHEET_URL = st.secrets["SPREADSHEET_URL"]
+ADMIN_CODE = st.secrets.get("ADMIN_CODE", "admin123")
 
-# ====== Secrets から読み込み ======
-svc_json = st.secrets["GSPREAD_SERVICE_ACCOUNT_JSON"]     # Secrets: [GSPREAD_SERVICE_ACCOUNT_JSON]
-SPREADSHEET_URL = st.secrets["SPREADSHEET_URL"]           # Secrets: SPREADSHEET_URL
-ADMIN_CODE = st.secrets.get("ADMIN_CODE", "admin123")     # 任意
-
-# ====== Google Sheets 認証 ======
+# -----------------------------
+# Google Sheets 認証
+# -----------------------------
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(svc_json, scope)
 gc = gspread.authorize(credentials)
@@ -74,22 +76,24 @@ sh = gc.open_by_url(SPREADSHEET_URL)
 users_ws = sh.worksheet("users")
 weights_ws = sh.worksheet("weights")
 
-# ====== util ======
+# -----------------------------
+# ユーティリティ
+# -----------------------------
 def normalize_uid(s: str) -> str:
     return str(s).replace("\u3000"," ").replace("\n"," ").replace("\r"," ").strip()
 
+@st.cache_data(ttl=60)
 def df_users() -> pd.DataFrame:
     u = pd.DataFrame(users_ws.get_all_records())
     if u.empty:
         return pd.DataFrame(columns=["user_id","password_hash","height_cm"])
-    # 列が無い場合に備えて
     if "height_cm" not in u.columns:
         u["height_cm"] = None
     u["user_id"] = u["user_id"].map(normalize_uid)
-    # 数値化
     u["height_cm"] = pd.to_numeric(u["height_cm"], errors="coerce")
     return u
 
+@st.cache_data(ttl=30)
 def df_weights() -> pd.DataFrame:
     df = pd.DataFrame(weights_ws.get_all_records())
     if df.empty:
@@ -123,9 +127,13 @@ def verify_user(user_id: str, plain_password: str) -> bool:
     if row.empty: return False
     hashed = str(row.iloc[0].get("password_hash", ""))
     if not hashed: return False
-    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed.encode("utf-8"))
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
 
 def create_user(user_id: str, plain_password: str, height_cm_input: str):
+    st.cache_data.clear()  # 更新反映
     user_id = normalize_uid(user_id)
     if not user_id or not plain_password:
         return "user_id と password を入力してください。"
@@ -133,12 +141,11 @@ def create_user(user_id: str, plain_password: str, height_cm_input: str):
     if not u.empty and any(u["user_id"] == user_id):
         return "その user_id は既に存在します。"
     hashed = bcrypt.hashpw(plain_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-    # height_cm は空でもOK
+    # heightは任意
     try:
         h = float(height_cm_input) if height_cm_input not in [None, "", " "] else ""
     except:
         h = ""
-    # usersのヘッダ順に合わせて append
     headers = users_ws.row_values(1)
     row = []
     for hname in headers:
@@ -154,12 +161,12 @@ def create_user(user_id: str, plain_password: str, height_cm_input: str):
     return f"ユーザー {user_id} を作成しました。"
 
 def update_height(user_id: str, height_cm: float):
+    st.cache_data.clear()
     u = df_users()
     if u.empty: return "users シートが空です。"
     idx = u.index[u["user_id"] == user_id]
     if len(idx) == 0: return "ユーザーが見つかりません。"
-    r = idx[0] + 2  # シートの行番号（ヘッダ=1行目）
-    # height_cm の列番号を探す
+    r = idx[0] + 2  # 見出しが1行目
     headers = users_ws.row_values(1)
     if "height_cm" not in headers:
         return "users シートに height_cm ヘッダーがありません。"
@@ -168,6 +175,7 @@ def update_height(user_id: str, height_cm: float):
     return "身長を更新しました。"
 
 def add_weight_row(y: int, m: int, d: int, user_id: str, weight):
+    st.cache_data.clear()
     try:
         _ = datetime(year=int(y), month=int(m), day=int(d))
     except Exception:
@@ -191,10 +199,12 @@ def calc_bmi(weight_kg: float, height_cm) -> str:
     except:
         return "未設定"
 
-# ====== UI ======
+# -----------------------------
+# 画面本体
+# -----------------------------
 st.title("📈 体重トラッカー")
 
-# セッション
+# セッション状態
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 if "is_admin" not in st.session_state:
@@ -202,15 +212,16 @@ if "is_admin" not in st.session_state:
 
 # --- ログイン ---
 st.subheader("ログイン")
-colA, colB = st.columns(2)
-uid = colA.text_input("ユーザーID")
-pw  = colB.text_input("パスワード", type="password")
-if st.button("ログイン"):
-    if verify_user(uid, pw):
-        st.session_state.current_user = normalize_uid(uid)
-        st.success(f"ログイン成功：{st.session_state.current_user}")
-    else:
-        st.error("ログイン失敗")
+with st.container():
+    cA, cB = st.columns(2)
+    uid = cA.text_input("ユーザーID")
+    pw  = cB.text_input("パスワード", type="password")
+    if st.button("ログイン"):
+        if verify_user(uid, pw):
+            st.session_state.current_user = normalize_uid(uid)
+            st.success(f"ログイン成功：{st.session_state.current_user}")
+        else:
+            st.error("ログイン失敗")
 
 # --- ログイン後の機能 ---
 if st.session_state.current_user:
@@ -219,7 +230,7 @@ if st.session_state.current_user:
     me = st.session_state.current_user
     my_h = du.set_index("user_id").get("height_cm", pd.Series()).get(me, None)
 
-    # 期間選択 & 自分のグラフ
+    # 自分のグラフ
     st.subheader("自分のグラフ")
     period = st.radio("表示期間", ["1か月","3か月","全期間"], horizontal=True)
     me_df = dfw[dfw["user_id"] == me]
@@ -228,39 +239,57 @@ if st.session_state.current_user:
     if me_df.empty:
         st.info(f"{me}: {period} の範囲にデータがありません。")
     else:
-        # 最新の体重
+        # 最新情報カード
         last_row = me_df.sort_values("date").iloc[-1]
         last_w = float(last_row["weight"])
         bmi_txt = calc_bmi(last_w, my_h)
-        st.caption(f"最新記録: {last_row['date'].date()} / {last_w:.1f} kg / BMI: {bmi_txt}")
 
-        fig = px.line(me_df, x="date", y="weight", markers=True,
-                      title=f"{me} の体重推移（{period}）", labels={"date":"日付","weight":"体重(kg)"})
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        m1, m2, m3 = st.columns(3)
+        m1.metric("最新日", f"{last_row['date'].date()}")
+        m2.metric("体重", f"{last_w:.1f} kg")
+        m3.metric("BMI", bmi_txt)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        fig = px.line(
+            me_df, x="date", y="weight", markers=True,
+            title=f"{me} の体重推移（{period}）",
+            labels={"date":"日付","weight":"体重(kg)"}
+        )
+        fig.update_layout(margin=dict(l=8, r=8, t=48, b=8))
         st.plotly_chart(fig, use_container_width=True)
 
-    # 身長の登録 / 更新
+    # 身長の登録/更新（BMI用）
     with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
         cur = "" if pd.isna(my_h) else f"{my_h:.1f}"
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         new_h = st.text_input("身長（cm）", value=cur)
-        if st.button("身長を保存"):
-            try:
-                hval = float(new_h)
-                msg = update_height(me, hval)
-                st.success(msg)
-            except:
-                st.error("数値で入力してください（例: 170）")
+        cols = st.columns(2)
+        with cols[0]:
+            if st.button("身長を保存"):
+                try:
+                    hval = float(new_h)
+                    msg = update_height(me, hval)
+                    st.success(msg)
+                except:
+                    st.error("数値で入力してください（例: 170）")
+        with cols[1]:
+            st.caption("身長を登録すると、最新体重から自動でBMIを表示します。")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # 記録追加
+    # 記録追加（今日がデフォルト）
     st.subheader("記録を追加（今日がデフォルト）")
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     today = date.today()
-    col1, col2, col3, col4 = st.columns(4)
-    y = col1.number_input("年", value=today.year, step=1)
-    m = col2.number_input("月", value=today.month, step=1)
-    d = col3.number_input("日", value=today.day, step=1)
-    w = col4.number_input("体重(kg)", value=65.0, step=0.1)
+    c1, c2, c3, c4 = st.columns(4)
+    y = c1.number_input("年", value=today.year, step=1)
+    m = c2.number_input("月", value=today.month, step=1)
+    d = c3.number_input("日", value=today.day, step=1)
+    w = c4.number_input("体重(kg)", value=65.0, step=0.1)
     if st.button("追加"):
         msg = add_weight_row(int(y), int(m), int(d), me, w)
         st.info(msg)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 # --- 管理者：ユーザー追加 & 全員のグラフ ---
 st.divider()
@@ -277,7 +306,9 @@ if not st.session_state.is_admin:
 
 if st.session_state.is_admin:
     tabs = st.tabs(["ユーザー追加", "全員のグラフ"])
+
     with tabs[0]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("新規ユーザーを作成します（身長は任意）")
         nu_col1, nu_col2, nu_col3 = st.columns(3)
         nu = nu_col1.text_input("new user_id（日本語OK）")
@@ -285,15 +316,20 @@ if st.session_state.is_admin:
         nh  = nu_col3.text_input("height_cm（任意）")
         if st.button("ユーザー作成"):
             st.info(create_user(nu, npw, nh))
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with tabs[1]:
-        st.markdown("全ユーザーの体重推移を色分け表示します。")
+        st.markdown('<div class="card">', unsafe_allow_html=True)
         period_all = st.radio("表示期間（全員）", ["1か月","3か月","全期間"], horizontal=True, key="period_all")
         dfw_all = filter_period(df_weights(), period_all)
         if dfw_all.empty:
             st.info("データがありません。")
         else:
-            fig_all = px.line(dfw_all, x="date", y="weight", color="user_id",
-                              markers=True, title=f"全員の体重推移（{period_all}）",
-                              labels={"date":"日付","weight":"体重(kg)","user_id":"ユーザー"})
+            fig_all = px.line(
+                dfw_all, x="date", y="weight", color="user_id", markers=True,
+                title=f"全員の体重推移（{period_all}）",
+                labels={"date":"日付","weight":"体重(kg)","user_id":"ユーザー"}
+            )
+            fig_all.update_layout(margin=dict(l=8, r=8, t=48, b=8))
             st.plotly_chart(fig_all, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
