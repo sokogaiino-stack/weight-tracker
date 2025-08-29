@@ -1,0 +1,7 @@
+[theme]
+base="light"                # "light" / "dark"
+primaryColor="#0ea5e9"      # アクション色（青系）
+backgroundColor="#ffffff"
+secondaryBackgroundColor="#f7f7f9"
+textColor="#0f172a"
+font="sans serif"           # 標準の見やすいフォント
