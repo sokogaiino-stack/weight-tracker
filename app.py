@@ -197,6 +197,8 @@ def init_height_digits(val: float):
     tens = int((v % 100) // 10)
     ones = int(v % 10)
     tenths = int(round((v - int(v)) * 10)) % 10
+    # 100の位は 1 or 2 の範囲に丸める
+    hund = 1 if hund < 1 else (2 if hund > 2 else hund)
     return hund, tens, ones, tenths
 
 def init_weight_digits(val: float):
@@ -216,13 +218,14 @@ def digits_to_float(hund, tens, ones, tenths):
 # -----------------------------
 st.title("📈 Weight-Trakcer")
 
-# セッション初期化
+# セッション初期化（初期化は一度だけ）
 if "current_user" not in st.session_state: st.session_state.current_user = None
 if "is_admin" not in st.session_state:     st.session_state.is_admin = False
+if "user_tab"   not in st.session_state:   st.session_state.user_tab = "体重グラフ"
+if "period_key" not in st.session_state:   st.session_state.period_key = "1か月"
+if "prev_user"  not in st.session_state:   st.session_state.prev_user = None
 if "weight_input" not in st.session_state: st.session_state.weight_input = 65.0
 if "height_input" not in st.session_state: st.session_state.height_input = 170.0
-if "user_tab" not in st.session_state:     st.session_state.user_tab = "体重グラフ"
-if "period_key" not in st.session_state:   st.session_state.period_key = "1か月"
 
 # --- LOGIN ---
 st.subheader("LOGIN")
@@ -244,11 +247,22 @@ if st.session_state.current_user:
     me = st.session_state.current_user
     my_h = du.set_index("user_id").get("height_cm", pd.Series()).get(me, None)
 
+    # 初回ログイン or ユーザー切替時に最新値で初期化
+    if st.session_state.prev_user != me:
+        me_df_sorted = dfw[dfw["user_id"] == me].sort_values("date")
+        if not me_df_sorted.empty:
+            st.session_state.weight_input = float(me_df_sorted.iloc[-1]["weight"])
+        if pd.notna(my_h):
+            st.session_state.height_input = float(my_h)
+        st.session_state.prev_user = me  # 記録
+
+    # ラジオ（選択は session_state.user_tab にのみ格納。返り値は無視）
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.session_state.user_tab = st.radio(
-        "メニュー", ["体重グラフ", "最新の記録（BMI）", "記録を追加"],
-        horizontal=True, index=["体重グラフ","最新の記録（BMI）","記録を追加"].index(st.session_state.user_tab),
-        key="user_tab_radio"
+    st.radio(
+        "メニュー", ["体重グラフ", "最新の記録（BMI）", "記録を追加", "身長を更新"],
+        horizontal=True,
+        index=["体重グラフ","最新の記録（BMI）","記録を追加","身長を更新"].index(st.session_state.user_tab),
+        key="user_tab"
     )
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -269,33 +283,12 @@ if st.session_state.current_user:
                 fig, use_container_width=True,
                 config={"staticPlot": True, "displayModeBar": False, "responsive": True}
             )
-
         st.session_state.period_key = st.radio(
             "表示期間", ["1か月","3か月","全期間"],
-            horizontal=True, index=["1か月","3か月","全期間"].index(st.session_state.period_key),
+            horizontal=True,
+            index=["1か月","3か月","全期間"].index(st.session_state.period_key),
             key="period_radio"
         )
-
-        # --- 身長：□ □ □ . □ cm（各桁セレクト）
-        with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-            init_hund, init_tens, init_ones, init_tenths = init_height_digits(my_h if my_h else st.session_state.height_input)
-
-            colh1, colh2, colh3, colh_dot, colh4 = st.columns([1,1,1,0.3,1])
-            hund = colh1.selectbox("100の位", options=DIGITS, index=init_hund, key="h_hund")
-            tens = colh2.selectbox("10の位", options=DIGITS, index=init_tens, key="h_tens")
-            ones = colh3.selectbox("1の位", options=DIGITS, index=init_ones, key="h_ones")
-            colh_dot.markdown("<div style='text-align:center;font-weight:bold;margin-top:1.8rem;'>.</div>", unsafe_allow_html=True)
-            tenths = colh4.selectbox("小数第1位", options=DIGITS, index=init_tenths, key="h_tenths")
-
-            height_val = digits_to_float(hund, tens, ones, tenths)
-            st.write(f"現在の入力値：**{height_val:.1f} cm**")
-
-            if st.button("身長を保存", key="btn_save_height"):
-                msg = update_height(me, height_val)
-                st.success(msg)
-                st.session_state.height_input = height_val
-            st.markdown('</div>', unsafe_allow_html=True)
 
     # === 最新の記録（BMI） ===
     elif st.session_state.user_tab == "最新の記録（BMI）":
@@ -305,7 +298,7 @@ if st.session_state.current_user:
         else:
             last_row = me_df_sorted.iloc[-1]
             last_w = float(last_row["weight"])
-            bmi_txt = calc_bmi(last_w, my_h)
+            bmi_txt = calc_bmi(last_w, my_h if pd.notna(my_h) else st.session_state.height_input)
             st.markdown('<div class="card compact-metrics">', unsafe_allow_html=True)
             c1, c2, c3 = st.columns(3)
             c1.metric("最新日", f"{last_row['date'].date()}")
@@ -317,13 +310,12 @@ if st.session_state.current_user:
     elif st.session_state.user_tab == "記録を追加":
         st.markdown('<div class="card">', unsafe_allow_html=True)
         today = date.today()
-
         c1, c2, c3 = st.columns([1,1,1])
         y = c1.number_input("年", value=today.year, step=1, format="%d", key="in_year")
         m = c2.number_input("月", value=today.month, step=1, format="%d", key="in_month")
         d = c3.number_input("日", value=today.day, step=1, format="%d", key="in_day")
 
-        # 直近値で初期化
+        # 体重（桁指定）
         init_w = st.session_state.weight_input
         iw_hund01, iw_tens, iw_ones, iw_tenths = init_weight_digits(init_w)
 
@@ -341,7 +333,28 @@ if st.session_state.current_user:
             st.session_state.weight_input = weight_val
             msg = add_weight_row(int(y), int(m), int(d), me, weight_val)
             st.info(msg)
+        st.markdown('</div>', unsafe_allow_html=True)
 
+    # === 身長を更新（独立タブ / 身長：□ □ □ . □ cm） ===
+    elif st.session_state.user_tab == "身長を更新":
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        base_h = float(my_h) if pd.notna(my_h) else st.session_state.height_input
+        ih_hund, ih_tens, ih_ones, ih_tenths = init_height_digits(base_h)
+
+        colh1, colh2, colh3, colh_dot, colh4 = st.columns([1,1,1,0.3,1])
+        hund = colh1.selectbox("100の位(1/2)", options=[1,2], index=[1,2].index(ih_hund if ih_hund in [1,2] else 1), key="h_hund")
+        tens = colh2.selectbox("10の位", options=DIGITS, index=ih_tens, key="h_tens")
+        ones = colh3.selectbox("1の位", options=DIGITS, index=ih_ones, key="h_ones")
+        colh_dot.markdown("<div style='text-align:center;font-weight:bold;margin-top:1.8rem;'>.</div>", unsafe_allow_html=True)
+        tenths = colh4.selectbox("小数第1位", options=DIGITS, index=ih_tenths, key="h_tenths")
+
+        height_val = digits_to_float(hund, tens, ones, tenths)
+        st.write(f"現在の入力値：**{height_val:.1f} cm**")
+
+        if st.button("身長を保存", key="btn_save_height"):
+            msg = update_height(me, height_val)
+            st.success(msg)
+            st.session_state.height_input = height_val
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ===== スペース入れて管理者を下方に配置（半ページ分程度） =====
