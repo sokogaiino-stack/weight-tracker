@@ -10,58 +10,79 @@ from dateutil.relativedelta import relativedelta
 # -----------------------------
 # 基本設定
 # -----------------------------
-st.set_page_config(page_title="体重トラッカー", page_icon="📈", layout="centered")
+st.set_page_config(page_title="Weight-Trakcer", page_icon="📈", layout="centered")
 
-# UIを整えるCSS（モバイル最適化 & カード風）
-st.markdown("""
+# -----------------------------
+# サイドバー：テーマカラー選択
+# -----------------------------
+st.sidebar.header("テーマ")
+default_color = st.session_state.get("primary_color", "#0ea5e9")
+picked = st.sidebar.color_picker("アクセントカラー", default_color)
+st.session_state.primary_color = picked
+
+# -----------------------------
+# UIスタイル（モバイル最適化 & カード & テーマカラー反映）
+# -----------------------------
+st.markdown(f"""
 <style>
-html, body, [class*="css"] { font-size: 16px; }
-h1, h2, h3 { margin-bottom: .6rem; }
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-.block-container { padding-top: 1rem; padding-bottom: 2rem; }
+:root {{
+  --primary: {st.session_state.primary_color};
+}}
+html, body, [class*="css"] {{ font-size: 16px; }}
+h1 {{ font-size: 1.35rem; margin: 0.2rem 0 0.8rem 0; }}
+h2 {{ font-size: 1.1rem;  margin-bottom: .6rem; }}
+h3 {{ font-size: 1.0rem;  margin-bottom: .4rem; }}
+#MainMenu {{ visibility: hidden; }}
+footer {{ visibility: hidden; }}
+.block-container {{ padding-top: 1rem; padding-bottom: 2rem; }}
 
-/* カード風コンテナ */
-.card {
-  padding: 1rem 1rem;
+.card {{
+  padding: 0.75rem 0.9rem;
   border-radius: 14px;
   background: #ffffff;
   box-shadow: 0 4px 16px rgba(2,6,23,0.06);
   border: 1px solid rgba(2,6,23,0.06);
-  margin-bottom: 1rem;
-}
-
-/* ボタン */
-.stButton>button, .stLinkButton>button {
-  height: 48px;
+  margin-bottom: 0.8rem;
+}}
+.compact-metrics .stMetric {{
+  padding: 0.2rem 0.4rem;
+}}
+.stButton>button, .stLinkButton>button {{
+  height: 44px;
   border-radius: 12px;
   font-weight: 600;
-}
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+}}
+.stButton>button:hover, .stLinkButton>button:hover {{
+  filter: brightness(0.95);
+}}
+.small-title {{
+  font-size: 1.0rem;
+  font-weight: 700;
+  margin: .2rem 0 .4rem 0;
+}}
 
-/* 入力欄 */
-.stNumberInput input, .stTextInput input, .stTextInput textarea {
+.input-row .stNumberInput input, .input-row .stTextInput input {{
   border-radius: 10px;
-  height: 44px;
-}
-
-/* グラフの余白（モバイル） */
-@media (max-width: 480px) {
-  .stPlotlyChart { margin-left: -8px; margin-right: -8px; }
-  h1 { font-size: 1.3rem; }
-  h2 { font-size: 1.1rem; }
-  h3 { font-size: 1.0rem; }
-}
+  height: 40px;
+}}
+.minus-plus .stButton>button {{
+  width: 46px; height: 40px; border-radius: 10px;
+  background: #f1f5f9 !important; color: #0f172a !important; border: 1px solid #e5e7eb !important;
+}}
+.hr-space {{ height: 42vh; }} /* 管理者をページ下方へ */
+@media (max-width: 480px) {{
+  .stPlotlyChart {{ margin-left: -8px; margin-right: -8px; }}
+  h1 {{ font-size: 1.15rem; }}
+  .hr-space {{ height: 36vh; }}
+}}
 </style>
 """, unsafe_allow_html=True)
 
 # -----------------------------
 # Secrets から読み込み
 # -----------------------------
-# Streamlit Cloud の Secrets に以下を設定してある前提
-# SPREADSHEET_URL = "https://docs.google.com/spreadsheets/..."
-# ADMIN_CODE = "admin123" など任意
-# [GSPREAD_SERVICE_ACCOUNT_JSON]
-# ... サービスアカウントのJSON中身 ...
 svc_json = st.secrets["GSPREAD_SERVICE_ACCOUNT_JSON"]
 SPREADSHEET_URL = st.secrets["SPREADSHEET_URL"]
 ADMIN_CODE = st.secrets.get("ADMIN_CODE", "admin123")
@@ -133,7 +154,7 @@ def verify_user(user_id: str, plain_password: str) -> bool:
         return False
 
 def create_user(user_id: str, plain_password: str, height_cm_input: str):
-    st.cache_data.clear()  # 更新反映
+    st.cache_data.clear()
     user_id = normalize_uid(user_id)
     if not user_id or not plain_password:
         return "user_id と password を入力してください。"
@@ -141,7 +162,6 @@ def create_user(user_id: str, plain_password: str, height_cm_input: str):
     if not u.empty and any(u["user_id"] == user_id):
         return "その user_id は既に存在します。"
     hashed = bcrypt.hashpw(plain_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-    # heightは任意
     try:
         h = float(height_cm_input) if height_cm_input not in [None, "", " "] else ""
     except:
@@ -166,7 +186,7 @@ def update_height(user_id: str, height_cm: float):
     if u.empty: return "users シートが空です。"
     idx = u.index[u["user_id"] == user_id]
     if len(idx) == 0: return "ユーザーが見つかりません。"
-    r = idx[0] + 2  # 見出しが1行目
+    r = idx[0] + 2
     headers = users_ws.row_values(1)
     if "height_cm" not in headers:
         return "users シートに height_cm ヘッダーがありません。"
@@ -202,13 +222,15 @@ def calc_bmi(weight_kg: float, height_cm) -> str:
 # -----------------------------
 # 画面本体
 # -----------------------------
-st.title("📈 体重トラッカー")
+st.title("📈 Weight-Trakcer")
 
-# セッション状態
+# セッション
 if "current_user" not in st.session_state:
     st.session_state.current_user = None
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
+if "weight_input" not in st.session_state:
+    st.session_state.weight_input = 65.0
 
 # --- ログイン ---
 st.subheader("ログイン")
@@ -233,35 +255,34 @@ if st.session_state.current_user:
     # 自分のグラフ
     st.subheader("自分のグラフ")
     period = st.radio("表示期間", ["1か月","3か月","全期間"], horizontal=True)
-    me_df = dfw[dfw["user_id"] == me]
-    me_df = filter_period(me_df, period)
+    me_df = filter_period(dfw[dfw["user_id"] == me], period)
 
     if me_df.empty:
         st.info(f"{me}: {period} の範囲にデータがありません。")
     else:
-        # 最新情報カード
+        # 最新メトリクス（コンパクトカード）
         last_row = me_df.sort_values("date").iloc[-1]
         last_w = float(last_row["weight"])
         bmi_txt = calc_bmi(last_w, my_h)
-
-        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card compact-metrics">', unsafe_allow_html=True)
         m1, m2, m3 = st.columns(3)
         m1.metric("最新日", f"{last_row['date'].date()}")
         m2.metric("体重", f"{last_w:.1f} kg")
         m3.metric("BMI", bmi_txt)
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # グラフ（静的・フォント小さめ・テーマ色）
         fig = px.line(
             me_df, x="date", y="weight", markers=True,
             title=f"{me} の体重推移（{period}）",
-            labels={"date":"日付","weight":"体重(kg)"}
+            labels={"date":"日付","weight":"体重(kg)"},
+            color_discrete_sequence=[st.session_state.primary_color]
         )
-        fig.update_layout(margin=dict(l=8, r=8, t=48, b=8))
+        fig.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
         st.plotly_chart(
-    fig,
-    use_container_width=True,
-    config={"staticPlot": True, "displayModeBar": False, "responsive": True}
-)
+            fig, use_container_width=True,
+            config={"staticPlot": True, "displayModeBar": False, "responsive": True}
+        )
 
     # 身長の登録/更新（BMI用）
     with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
@@ -281,23 +302,44 @@ if st.session_state.current_user:
             st.caption("身長を登録すると、最新体重から自動でBMIを表示します。")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 記録追加（今日がデフォルト）
-    st.subheader("記録を追加（今日がデフォルト）")
-    st.markdown('<div class="card">', unsafe_allow_html=True)
+    # 記録追加（見出し小さめ）
+    st.markdown('<div class="small-title">記録を追加</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card input-row">', unsafe_allow_html=True)
     today = date.today()
-    c1, c2, c3, c4 = st.columns(4)
-    y = c1.number_input("年", value=today.year, step=1)
-    m = c2.number_input("月", value=today.month, step=1)
-    d = c3.number_input("日", value=today.day, step=1)
-    w = c4.number_input("体重(kg)", value=65.0, step=0.1)
+    c1, c2, c3, c4, c5 = st.columns([1,1,1,2,2])  # 横幅をやや抑える
+    y = c1.number_input("年", value=today.year, step=1, format="%d")
+    m = c2.number_input("月", value=today.month, step=1, format="%d")
+    d = c3.number_input("日", value=today.day, step=1, format="%d")
+
+    # 体重入力（半分長さ & ±ボタン）
+    with c4:
+        st.session_state.weight_input = st.number_input(
+            "体重(kg)", value=float(st.session_state.weight_input), step=0.1, format="%.1f"
+        )
+    with c5:
+        st.markdown('<div class="minus-plus">', unsafe_allow_html=True)
+        c5a, c5b, c5c = st.columns([1,1,3])
+        if c5a.button("－"):
+            st.session_state.weight_input = round(st.session_state.weight_input - 0.1, 1)
+        if c5b.button("＋"):
+            st.session_state.weight_input = round(st.session_state.weight_input + 0.1, 1)
+        st.write("")  # スペーサ
+        st.markdown('</div>', unsafe_allow_html=True)
+
     if st.button("追加"):
-        msg = add_weight_row(int(y), int(m), int(d), me, w)
+        msg = add_weight_row(int(y), int(m), int(d), me, st.session_state.weight_input)
         st.info(msg)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 管理者：ユーザー追加 & 全員のグラフ ---
+# ===== スペース入れて管理者を下方に配置 =====
+st.markdown('<div class="hr-space"></div>', unsafe_allow_html=True)
+
+# --- 管理者（Administrator） ---
 st.divider()
-st.subheader("（管理者）機能")
+st.subheader("Administrator")
+
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
 
 if not st.session_state.is_admin:
     code = st.text_input("合言葉（ADMIN_CODE）", type="password")
@@ -334,8 +376,9 @@ if st.session_state.is_admin:
                 title=f"全員の体重推移（{period_all}）",
                 labels={"date":"日付","weight":"体重(kg)","user_id":"ユーザー"}
             )
-            fig_all.update_layout(margin=dict(l=8, r=8, t=48, b=8))
-            st.plotly_chart(fig_all,
-    use_container_width=True,
-    config={"staticPlot": True, "displayModeBar": False, "responsive": True}
-)
+            fig_all.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
+            st.plotly_chart(
+                fig_all, use_container_width=True,
+                config={"staticPlot": True, "displayModeBar": False, "responsive": True}
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
