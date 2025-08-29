@@ -1,8 +1,9 @@
 streamlit
+plotly
 gspread
 oauth2client
 pandas
-matplotlib
 bcrypt
 python-dateutil
-plotly
+Pillow
+matplotlib
