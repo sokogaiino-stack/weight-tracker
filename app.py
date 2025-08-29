@@ -241,12 +241,7 @@ def digits_to_float(hund, tens, ones, tenths):
 # --------------------------------
 # 画面本体
 # --------------------------------
-col1, col2 = st.columns([0.1, 0.9])
-with col1:
-    st.image("favicon.png", width=32)
-with col2:
-    st.title("Weight-Trakcer")
-
+st.title("📈 Weight-Trakcer")
 
 # セッション初期化
 if "current_user" not in st.session_state: st.session_state.current_user = None
