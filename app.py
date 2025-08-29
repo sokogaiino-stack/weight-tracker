@@ -257,7 +257,11 @@ if st.session_state.current_user:
             labels={"date":"日付","weight":"体重(kg)"}
         )
         fig.update_layout(margin=dict(l=8, r=8, t=48, b=8))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(
+    fig,
+    use_container_width=True,
+    config={"staticPlot": True, "displayModeBar": False, "responsive": True}
+)
 
     # 身長の登録/更新（BMI用）
     with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
@@ -331,5 +335,7 @@ if st.session_state.is_admin:
                 labels={"date":"日付","weight":"体重(kg)","user_id":"ユーザー"}
             )
             fig_all.update_layout(margin=dict(l=8, r=8, t=48, b=8))
-            st.plotly_chart(fig_all, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.plotly_chart(fig_all,
+    use_container_width=True,
+    config={"staticPlot": True, "displayModeBar": False, "responsive": True}
+)
