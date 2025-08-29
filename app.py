@@ -1,4 +1,12 @@
 import streamlit as st
+from PIL import Image
+
+st.set_page_config(
+    page_title="Weight-Trakcer",
+    page_icon=Image.open("favicon.png"),  # ←ここで差し替え
+    layout="centered"
+)
+
 import pandas as pd
 import plotly.express as px
 import bcrypt
