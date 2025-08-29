@@ -8,68 +8,44 @@ from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 
 # -----------------------------
-# 基本設定（タイトル表記を指定どおりに）
+# 基本設定（タイトル表記）
 # -----------------------------
 st.set_page_config(page_title="Weight-Trakcer", page_icon="📈", layout="centered")
 
 # -----------------------------
-# ダークモード切り替え（テーマカラー変更は無し）
+# シンプルなUIスタイル（カード等）
 # -----------------------------
-dark = st.sidebar.toggle("Dark mode", value=False)
-
-# UIスタイル（モバイル最適化 & カード & ダーク/ライト切替）
-bg = "#0f172a" if dark else "#ffffff"
-surface = "#111827" if dark else "#ffffff"
-text = "#e5e7eb" if dark else "#0f172a"
-border = "rgba(255,255,255,0.08)" if dark else "rgba(2,6,23,0.06)"
-
-st.markdown(f"""
+st.markdown("""
 <style>
-html, body, [class*="css"] {{
-  font-size: 16px;
-  background: {bg};
-  color: {text};
-}}
-h1 {{ font-size: 1.35rem; margin: .2rem 0 .8rem 0; }}
-h2 {{ font-size: 1.1rem;  margin-bottom: .6rem; }}
-h3 {{ font-size: 1.0rem;  margin-bottom: .4rem; }}
-#MainMenu {{ visibility: hidden; }} footer {{ visibility: hidden; }}
-.block-container {{ padding-top: 1rem; padding-bottom: 2rem; }}
+html, body, [class*="css"] { font-size: 16px; }
+h1 { font-size: 1.35rem; margin: .2rem 0 .8rem 0; }
+h2 { font-size: 1.1rem;  margin-bottom: .6rem; }
+h3 { font-size: 1.0rem;  margin-bottom: .4rem; }
+#MainMenu { visibility: hidden; } footer { visibility: hidden; }
+.block-container { padding-top: 1rem; padding-bottom: 2rem; }
 
-.card {{
+.card {
   padding: 0.75rem 0.9rem;
   border-radius: 14px;
-  background: {surface};
+  background: #ffffff;
   box-shadow: 0 4px 16px rgba(2,6,23,0.06);
-  border: 1px solid {border};
+  border: 1px solid rgba(2,6,23,0.06);
   margin-bottom: 0.8rem;
-}}
-.compact-metrics .stMetric {{ padding: 0.2rem 0.4rem; }}
+}
+.compact-metrics .stMetric { padding: 0.2rem 0.4rem; }
 
-.stButton>button, .stLinkButton>button {{
-  height: 44px;
-  border-radius: 12px;
-  font-weight: 600;
-}}
-
-.small-title {{
+.small-title {
   font-size: 1.0rem;
   font-weight: 700;
   margin: .2rem 0 .4rem 0;
-}}
+}
 
-.input-row .stNumberInput input, .input-row .stTextInput input {{
-  border-radius: 10px;
-  height: 40px;
-  width: 50%;  /* 入力欄の幅を半分に */
-}}
-
-.hr-space {{ height: 42vh; }} /* 管理者をページ下方へ */
-@media (max-width: 480px) {{
-  .stPlotlyChart {{ margin-left: -8px; margin-right: -8px; }}
-  h1 {{ font-size: 1.15rem; }}
-  .hr-space {{ height: 36vh; }}
-}}
+.hr-space { height: 42vh; } /* 管理者をページ下方へ */
+@media (max-width: 480px) {
+  .stPlotlyChart { margin-left: -8px; margin-right: -8px; }
+  h1 { font-size: 1.15rem; }
+  .hr-space { height: 36vh; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -78,7 +54,8 @@ h3 {{ font-size: 1.0rem;  margin-bottom: .4rem; }}
 # -----------------------------
 svc_json = st.secrets["GSPREAD_SERVICE_ACCOUNT_JSON"]
 SPREADSHEET_URL = st.secrets["SPREADSHEET_URL"]
-ADMIN_CODE = st.secrets.get("ADMIN_CODE", "admin123")
+# デフォルトを satomi12345 に変更（Secretsに ADMIN_CODE があればそちら優先）
+ADMIN_CODE = st.secrets.get("ADMIN_CODE", "satomi12345")
 
 # -----------------------------
 # Google Sheets 認証
@@ -222,15 +199,18 @@ if "current_user" not in st.session_state:
     st.session_state.current_user = None
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
-if "weight_input" not in st.session_state:
-    st.session_state.weight_input = 65.0
+# ユーザーごとに入力値を持つ
+if "weight_input" not in st.session_state: st.session_state.weight_input = 65.0
+if "height_input" not in st.session_state: st.session_state.height_input = 170.0
+if "height_user" not in st.session_state:  st.session_state.height_user = None
+if "weight_user" not in st.session_state:  st.session_state.weight_user = None
 
-# --- ログイン ---
-st.subheader("ログイン")
+# --- LOGIN ---
+st.subheader("LOGIN")
 with st.container():
     cA, cB = st.columns(2)
-    uid = cA.text_input("ユーザーID")
-    pw  = cB.text_input("パスワード", type="password")
+    uid = cA.text_input("ID")
+    pw  = cB.text_input("PASSWORD", type="password")
     if st.button("ログイン"):
         if verify_user(uid, pw):
             st.session_state.current_user = normalize_uid(uid)
@@ -244,6 +224,17 @@ if st.session_state.current_user:
     du = df_users()
     me = st.session_state.current_user
     my_h = du.set_index("user_id").get("height_cm", pd.Series()).get(me, None)
+
+    # ユーザー切替時に入力値を初期化
+    if st.session_state.weight_user != me:
+        # 直近値があればそれを初期値に
+        me_df_full = dfw[dfw["user_id"] == me]
+        if not me_df_full.empty:
+            st.session_state.weight_input = float(me_df_full.sort_values("date").iloc[-1]["weight"])
+        st.session_state.weight_user = me
+    if st.session_state.height_user != me:
+        st.session_state.height_input = float(my_h) if pd.notna(my_h) else 170.0
+        st.session_state.height_user = me
 
     # 自分のグラフ
     st.subheader("自分のグラフ")
@@ -276,35 +267,48 @@ if st.session_state.current_user:
             config={"staticPlot": True, "displayModeBar": False, "responsive": True}
         )
 
-    # 身長の登録/更新（BMI用）
+    # 身長の登録/更新（BMI用）— 0.1cm刻みの ± ボタン付き
     with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
-        cur = "" if pd.isna(my_h) else f"{my_h:.1f}"
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        new_h = st.text_input("身長（cm）", value=cur)
-        cols = st.columns(2)
-        with cols[0]:
-            if st.button("身長を保存"):
-                try:
-                    hval = float(new_h)
-                    msg = update_height(me, hval)
-                    st.success(msg)
-                except:
-                    st.error("数値で入力してください（例: 170）")
-        with cols[1]:
-            st.caption("身長を登録すると、最新体重から自動でBMIを表示します。")
+        c_h1, c_h2 = st.columns(2)
+        with c_h1:
+            st.session_state.height_input = st.number_input(
+                "身長（cm）", value=float(st.session_state.height_input), step=0.1, format="%.1f"
+            )
+        with c_h2:
+            c_b1, c_b2, _ = st.columns([1,1,3])
+            if c_b1.button("－", key="h_minus"):
+                st.session_state.height_input = round(st.session_state.height_input - 0.1, 1)
+            if c_b2.button("＋", key="h_plus"):
+                st.session_state.height_input = round(st.session_state.height_input + 0.1, 1)
+            st.caption("±0.1cmで微調整できます。")
+
+        if st.button("身長を保存"):
+            try:
+                hval = float(st.session_state.height_input)
+                msg = update_height(me, hval)
+                st.success(msg)
+            except:
+                st.error("数値で入力してください（例: 170.0）")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 記録を追加（見出し名・サイズ変更 & 入力幅を半分に）
+    # 記録を追加（見出し名・サイズ / 2×2レイアウト）
     st.markdown('<div class="small-title">記録を追加</div>', unsafe_allow_html=True)
-    st.markdown('<div class="card input-row">', unsafe_allow_html=True)
+    st.markdown('<div class="card">', unsafe_allow_html=True)
     today = date.today()
-    c1, c2, c3, c4 = st.columns([1,1,1,2])
-    y = c1.number_input("年", value=today.year, step=1, format="%d")
-    m = c2.number_input("月", value=today.month, step=1, format="%d")
-    d = c3.number_input("日", value=today.day, step=1, format="%d")
-    st.session_state.weight_input = c4.number_input(
-        "体重(kg)", value=float(st.session_state.weight_input), step=0.1, format="%.1f"
-    )
+
+    # 2列×2段（スマホでも見やすい）
+    col_left, col_right = st.columns(2)
+    with col_left:
+        y = st.number_input("年", value=today.year, step=1, format="%d")
+        m = st.number_input("月", value=today.month, step=1, format="%d")
+    with col_right:
+        d = st.number_input("日", value=today.day, step=1, format="%d")
+        # 体重（±ボタンなし / 入力欄だけ半分にしたい → 2列化で視覚的に短く）
+        st.session_state.weight_input = st.number_input(
+            "体重(kg)", value=float(st.session_state.weight_input), step=0.1, format="%.1f"
+        )
+
     if st.button("追加"):
         msg = add_weight_row(int(y), int(m), int(d), me, st.session_state.weight_input)
         st.info(msg)
@@ -321,7 +325,7 @@ if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
 if not st.session_state.is_admin:
-    code = st.text_input("合言葉（ADMIN_CODE）", type="password")
+    code = st.text_input("ADNIN_CODE", type="password")  # ラベル表記をご指定どおりに
     if st.button("管理者モードに入る"):
         if code == ADMIN_CODE:
             st.session_state.is_admin = True
