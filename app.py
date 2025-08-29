@@ -8,55 +8,50 @@ from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 
 # -----------------------------
-# 基本設定
+# 基本設定（タイトル表記を指定どおりに）
 # -----------------------------
 st.set_page_config(page_title="Weight-Trakcer", page_icon="📈", layout="centered")
 
 # -----------------------------
-# サイドバー：テーマカラー選択
+# ダークモード切り替え（テーマカラー変更は無し）
 # -----------------------------
-st.sidebar.header("テーマ")
-default_color = st.session_state.get("primary_color", "#0ea5e9")
-picked = st.sidebar.color_picker("アクセントカラー", default_color)
-st.session_state.primary_color = picked
+dark = st.sidebar.toggle("Dark mode", value=False)
 
-# -----------------------------
-# UIスタイル（モバイル最適化 & カード & テーマカラー反映）
-# -----------------------------
+# UIスタイル（モバイル最適化 & カード & ダーク/ライト切替）
+bg = "#0f172a" if dark else "#ffffff"
+surface = "#111827" if dark else "#ffffff"
+text = "#e5e7eb" if dark else "#0f172a"
+border = "rgba(255,255,255,0.08)" if dark else "rgba(2,6,23,0.06)"
+
 st.markdown(f"""
 <style>
-:root {{
-  --primary: {st.session_state.primary_color};
+html, body, [class*="css"] {{
+  font-size: 16px;
+  background: {bg};
+  color: {text};
 }}
-html, body, [class*="css"] {{ font-size: 16px; }}
-h1 {{ font-size: 1.35rem; margin: 0.2rem 0 0.8rem 0; }}
+h1 {{ font-size: 1.35rem; margin: .2rem 0 .8rem 0; }}
 h2 {{ font-size: 1.1rem;  margin-bottom: .6rem; }}
 h3 {{ font-size: 1.0rem;  margin-bottom: .4rem; }}
-#MainMenu {{ visibility: hidden; }}
-footer {{ visibility: hidden; }}
+#MainMenu {{ visibility: hidden; }} footer {{ visibility: hidden; }}
 .block-container {{ padding-top: 1rem; padding-bottom: 2rem; }}
 
 .card {{
   padding: 0.75rem 0.9rem;
   border-radius: 14px;
-  background: #ffffff;
+  background: {surface};
   box-shadow: 0 4px 16px rgba(2,6,23,0.06);
-  border: 1px solid rgba(2,6,23,0.06);
+  border: 1px solid {border};
   margin-bottom: 0.8rem;
 }}
-.compact-metrics .stMetric {{
-  padding: 0.2rem 0.4rem;
-}}
+.compact-metrics .stMetric {{ padding: 0.2rem 0.4rem; }}
+
 .stButton>button, .stLinkButton>button {{
   height: 44px;
   border-radius: 12px;
   font-weight: 600;
-  background: var(--primary) !important;
-  border-color: var(--primary) !important;
 }}
-.stButton>button:hover, .stLinkButton>button:hover {{
-  filter: brightness(0.95);
-}}
+
 .small-title {{
   font-size: 1.0rem;
   font-weight: 700;
@@ -66,11 +61,9 @@ footer {{ visibility: hidden; }}
 .input-row .stNumberInput input, .input-row .stTextInput input {{
   border-radius: 10px;
   height: 40px;
+  width: 50%;  /* 入力欄の幅を半分に */
 }}
-.minus-plus .stButton>button {{
-  width: 46px; height: 40px; border-radius: 10px;
-  background: #f1f5f9 !important; color: #0f172a !important; border: 1px solid #e5e7eb !important;
-}}
+
 .hr-space {{ height: 42vh; }} /* 管理者をページ下方へ */
 @media (max-width: 480px) {{
   .stPlotlyChart {{ margin-left: -8px; margin-right: -8px; }}
@@ -271,12 +264,11 @@ if st.session_state.current_user:
         m3.metric("BMI", bmi_txt)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # グラフ（静的・フォント小さめ・テーマ色）
+        # グラフ（静的 + フォント一段小さく）
         fig = px.line(
             me_df, x="date", y="weight", markers=True,
             title=f"{me} の体重推移（{period}）",
             labels={"date":"日付","weight":"体重(kg)"},
-            color_discrete_sequence=[st.session_state.primary_color]
         )
         fig.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
         st.plotly_chart(
@@ -302,36 +294,23 @@ if st.session_state.current_user:
             st.caption("身長を登録すると、最新体重から自動でBMIを表示します。")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 記録追加（見出し小さめ）
+    # 記録を追加（見出し名・サイズ変更 & 入力幅を半分に）
     st.markdown('<div class="small-title">記録を追加</div>', unsafe_allow_html=True)
     st.markdown('<div class="card input-row">', unsafe_allow_html=True)
     today = date.today()
-    c1, c2, c3, c4, c5 = st.columns([1,1,1,2,2])  # 横幅をやや抑える
+    c1, c2, c3, c4 = st.columns([1,1,1,2])
     y = c1.number_input("年", value=today.year, step=1, format="%d")
     m = c2.number_input("月", value=today.month, step=1, format="%d")
     d = c3.number_input("日", value=today.day, step=1, format="%d")
-
-    # 体重入力（半分長さ & ±ボタン）
-    with c4:
-        st.session_state.weight_input = st.number_input(
-            "体重(kg)", value=float(st.session_state.weight_input), step=0.1, format="%.1f"
-        )
-    with c5:
-        st.markdown('<div class="minus-plus">', unsafe_allow_html=True)
-        c5a, c5b, c5c = st.columns([1,1,3])
-        if c5a.button("－"):
-            st.session_state.weight_input = round(st.session_state.weight_input - 0.1, 1)
-        if c5b.button("＋"):
-            st.session_state.weight_input = round(st.session_state.weight_input + 0.1, 1)
-        st.write("")  # スペーサ
-        st.markdown('</div>', unsafe_allow_html=True)
-
+    st.session_state.weight_input = c4.number_input(
+        "体重(kg)", value=float(st.session_state.weight_input), step=0.1, format="%.1f"
+    )
     if st.button("追加"):
         msg = add_weight_row(int(y), int(m), int(d), me, st.session_state.weight_input)
         st.info(msg)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ===== スペース入れて管理者を下方に配置 =====
+# ===== スペース入れて管理者を下方に配置（半ページ分程度） =====
 st.markdown('<div class="hr-space"></div>', unsafe_allow_html=True)
 
 # --- 管理者（Administrator） ---
