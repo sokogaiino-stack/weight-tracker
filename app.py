@@ -188,6 +188,29 @@ def calc_bmi(weight_kg: float, height_cm) -> str:
     except:
         return "未設定"
 
+# ---- 桁UIの共通ヘルパ ----
+DIGITS = list(range(0,10))
+def init_height_digits(val: float):
+    if val is None or pd.isna(val): val = 170.0
+    v = round(float(val),1)
+    hund = int(v // 100)
+    tens = int((v % 100) // 10)
+    ones = int(v % 10)
+    tenths = int(round((v - int(v)) * 10)) % 10
+    return hund, tens, ones, tenths
+
+def init_weight_digits(val: float):
+    if val is None or pd.isna(val): val = 65.0
+    v = round(float(val),1)
+    hund01 = min(1, int(v // 100))  # 0 or 1
+    tens = int((v % 100) // 10)
+    ones = int(v % 10)
+    tenths = int(round((v - int(v)) * 10)) % 10
+    return hund01, tens, ones, tenths
+
+def digits_to_float(hund, tens, ones, tenths):
+    return float(100*hund + 10*tens + ones + tenths/10.0)
+
 # -----------------------------
 # 画面本体
 # -----------------------------
@@ -200,8 +223,6 @@ if "weight_input" not in st.session_state: st.session_state.weight_input = 65.0
 if "height_input" not in st.session_state: st.session_state.height_input = 170.0
 if "user_tab" not in st.session_state:     st.session_state.user_tab = "体重グラフ"
 if "period_key" not in st.session_state:   st.session_state.period_key = "1か月"
-if "h_slider" not in st.session_state:     st.session_state.h_slider = 170.0
-if "w_slider" not in st.session_state:     st.session_state.w_slider = 65.0
 
 # --- LOGIN ---
 st.subheader("LOGIN")
@@ -216,7 +237,7 @@ with st.container():
         else:
             st.error("ログイン失敗")
 
-# --- ユーザー領域（タブ代わりのラジオで安定化） ---
+# --- ユーザー領域（ラジオでタブ安定化） ---
 if st.session_state.current_user:
     dfw = df_weights()
     du = df_users()
@@ -234,8 +255,6 @@ if st.session_state.current_user:
     # === 体重グラフ ===
     if st.session_state.user_tab == "体重グラフ":
         me_df_all = dfw[dfw["user_id"] == me]
-
-        # 現在の期間でグラフ
         dplot = filter_period(me_df_all, st.session_state.period_key)
         if dplot.empty:
             st.info(f"{me}: {st.session_state.period_key} の範囲にデータがありません。")
@@ -251,48 +270,31 @@ if st.session_state.current_user:
                 config={"staticPlot": True, "displayModeBar": False, "responsive": True}
             )
 
-        # 期間切替（選択をセッションに保存）
         st.session_state.period_key = st.radio(
             "表示期間", ["1か月","3か月","全期間"],
             horizontal=True, index=["1か月","3か月","全期間"].index(st.session_state.period_key),
             key="period_radio"
         )
 
-        # 身長登録/更新（スライダー＋微調整＋直接入力）— 値はセッションに保存
+        # --- 身長：□ □ □ . □ cm（各桁セレクト）
         with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
             st.markdown('<div class="card">', unsafe_allow_html=True)
-            init_h = float(my_h) if pd.notna(my_h) else st.session_state.height_input
+            init_hund, init_tens, init_ones, init_tenths = init_height_digits(my_h if my_h else st.session_state.height_input)
 
-            # スライダー（セッション値を優先）
-            st.session_state.h_slider = st.slider(
-                "身長（cm）", min_value=130.0, max_value=210.0,
-                value=float(st.session_state.get("h_slider", init_h)), step=0.1, key="h_slider_widget"
-            )
+            colh1, colh2, colh3, colh_dot, colh4 = st.columns([1,1,1,0.3,1])
+            hund = colh1.selectbox("100の位", options=DIGITS, index=init_hund, key="h_hund")
+            tens = colh2.selectbox("10の位", options=DIGITS, index=init_tens, key="h_tens")
+            ones = colh3.selectbox("1の位", options=DIGITS, index=init_ones, key="h_ones")
+            colh_dot.markdown("<div style='text-align:center;font-weight:bold;margin-top:1.8rem;'>.</div>", unsafe_allow_html=True)
+            tenths = colh4.selectbox("小数第1位", options=DIGITS, index=init_tenths, key="h_tenths")
 
-            # 微調整（可変ステップ + ジャンプ）
-            step_choice = st.radio("微調整ステップ", [0.1, 0.5, 1.0], horizontal=True, index=0, key="h_step_choice")
-            c1, c2, c3, c4, c5 = st.columns([1,1,2,1,1])
-            if c1.button("−", key="h_minus"):
-                st.session_state.h_slider = round(max(130.0, st.session_state.h_slider - float(step_choice)), 1)
-            if c2.button("+", key="h_plus"):
-                st.session_state.h_slider = round(min(210.0, st.session_state.h_slider + float(step_choice)), 1)
-            if c4.button("−10", key="h_minus10"):
-                st.session_state.h_slider = round(max(130.0, st.session_state.h_slider - 10.0), 1)
-            if c5.button("+10", key="h_plus10"):
-                st.session_state.h_slider = round(min(210.0, st.session_state.h_slider + 10.0), 1)
-
-            # 直接入力
-            st.session_state.height_input = st.number_input(
-                "最終値（直接入力可）", value=float(st.session_state.h_slider), step=0.1, format="%.1f", key="h_final"
-            )
+            height_val = digits_to_float(hund, tens, ones, tenths)
+            st.write(f"現在の入力値：**{height_val:.1f} cm**")
 
             if st.button("身長を保存", key="btn_save_height"):
-                try:
-                    hval = float(st.session_state.height_input)
-                    msg = update_height(me, hval)
-                    st.success(msg)
-                except:
-                    st.error("数値で入力してください（例: 170.0）")
+                msg = update_height(me, height_val)
+                st.success(msg)
+                st.session_state.height_input = height_val
             st.markdown('</div>', unsafe_allow_html=True)
 
     # === 最新の記録（BMI） ===
@@ -311,7 +313,7 @@ if st.session_state.current_user:
             c3.metric("BMI", bmi_txt)
             st.markdown('</div>', unsafe_allow_html=True)
 
-    # === 記録を追加 ===
+    # === 記録を追加（体重：□ □ □ . □ kg） ===
     elif st.session_state.user_tab == "記録を追加":
         st.markdown('<div class="card">', unsafe_allow_html=True)
         today = date.today()
@@ -321,30 +323,25 @@ if st.session_state.current_user:
         m = c2.number_input("月", value=today.month, step=1, format="%d", key="in_month")
         d = c3.number_input("日", value=today.day, step=1, format="%d", key="in_day")
 
-        # 体重スライダー（セッション値を維持）
-        st.session_state.w_slider = st.slider(
-            "体重(kg)", min_value=30.0, max_value=200.0,
-            value=float(st.session_state.get("w_slider", st.session_state.weight_input)), step=0.1, key="w_slider_widget"
-        )
+        # 直近値で初期化
+        init_w = st.session_state.weight_input
+        iw_hund01, iw_tens, iw_ones, iw_tenths = init_weight_digits(init_w)
 
-        step_choice_w = st.radio("微調整ステップ", [0.1, 0.5, 1.0], horizontal=True, index=0, key="w_step_choice")
-        wcol1, wcol2, wsp, wcol3, wcol4 = st.columns([1,1,2,1,1])
-        if wcol1.button("−", key="w_minus"):
-            st.session_state.w_slider = round(max(30.0, st.session_state.w_slider - float(step_choice_w)), 1)
-        if wcol2.button("+", key="w_plus"):
-            st.session_state.w_slider = round(min(200.0, st.session_state.w_slider + float(step_choice_w)), 1)
-        if wcol3.button("−5", key="w_minus5"):
-            st.session_state.w_slider = round(max(30.0, st.session_state.w_slider - 5.0), 1)
-        if wcol4.button("+5", key="w_plus5"):
-            st.session_state.w_slider = round(min(200.0, st.session_state.w_slider + 5.0), 1)
+        colw1, colw2, colw3, colw_dot, colw4 = st.columns([1,1,1,0.3,1])
+        hund01 = colw1.selectbox("100の位(0/1)", options=[0,1], index=iw_hund01, key="w_hund01")
+        tens   = colw2.selectbox("10の位", options=DIGITS, index=iw_tens, key="w_tens")
+        ones   = colw3.selectbox("1の位",  options=DIGITS, index=iw_ones, key="w_ones")
+        colw_dot.markdown("<div style='text-align:center;font-weight:bold;margin-top:1.8rem;'>.</div>", unsafe_allow_html=True)
+        tenths = colw4.selectbox("小数第1位", options=DIGITS, index=iw_tenths, key="w_tenths")
 
-        st.session_state.weight_input = st.number_input(
-            "最終値（直接入力可）", value=float(st.session_state.w_slider), step=0.1, format="%.1f", key="w_final"
-        )
+        weight_val = digits_to_float(hund01, tens, ones, tenths)
+        st.write(f"現在の入力値：**{weight_val:.1f} kg**")
 
         if st.button("追加", key="btn_add_record"):
-            msg = add_weight_row(int(y), int(m), int(d), me, st.session_state.weight_input)
+            st.session_state.weight_input = weight_val
+            msg = add_weight_row(int(y), int(m), int(d), me, weight_val)
             st.info(msg)
+
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ===== スペース入れて管理者を下方に配置（半ページ分程度） =====
