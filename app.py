@@ -8,7 +8,7 @@ from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 
 # -----------------------------
-# 基本設定（タイトル表記）
+# 基本設定（タイトル）
 # -----------------------------
 st.set_page_config(page_title="Weight-Trakcer", page_icon="📈", layout="centered")
 
@@ -54,7 +54,7 @@ h3 { font-size: 1.0rem;  margin-bottom: .4rem; }
 # -----------------------------
 svc_json = st.secrets["GSPREAD_SERVICE_ACCOUNT_JSON"]
 SPREADSHEET_URL = st.secrets["SPREADSHEET_URL"]
-# デフォルトを satomi12345 に変更（Secretsに ADMIN_CODE があればそちら優先）
+# 管理者パスはデフォルトを satomi12345（Secretsに ADMIN_CODE があればそれを優先）
 ADMIN_CODE = st.secrets.get("ADMIN_CODE", "satomi12345")
 
 # -----------------------------
@@ -199,11 +199,8 @@ if "current_user" not in st.session_state:
     st.session_state.current_user = None
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
-# ユーザーごとに入力値を持つ
 if "weight_input" not in st.session_state: st.session_state.weight_input = 65.0
 if "height_input" not in st.session_state: st.session_state.height_input = 170.0
-if "height_user" not in st.session_state:  st.session_state.height_user = None
-if "weight_user" not in st.session_state:  st.session_state.weight_user = None
 
 # --- LOGIN ---
 st.subheader("LOGIN")
@@ -218,150 +215,78 @@ with st.container():
         else:
             st.error("ログイン失敗")
 
-# --- ログイン後の機能 ---
+# --- ログイン後の機能（ユーザー側タブ： 体重グラフ / 最新の記録（BMI） / 記録を追加） ---
 if st.session_state.current_user:
     dfw = df_weights()
     du = df_users()
     me = st.session_state.current_user
     my_h = du.set_index("user_id").get("height_cm", pd.Series()).get(me, None)
 
-    # ユーザー切替時に入力値を初期化
-    if st.session_state.weight_user != me:
-        # 直近値があればそれを初期値に
-        me_df_full = dfw[dfw["user_id"] == me]
-        if not me_df_full.empty:
-            st.session_state.weight_input = float(me_df_full.sort_values("date").iloc[-1]["weight"])
-        st.session_state.weight_user = me
-    if st.session_state.height_user != me:
-        st.session_state.height_input = float(my_h) if pd.notna(my_h) else 170.0
-        st.session_state.height_user = me
+    user_tabs = st.tabs(["体重グラフ", "最新の記録（BMI）", "記録を追加"])
 
-    # 自分のグラフ
-    st.subheader("自分のグラフ")
-    period = st.radio("表示期間", ["1か月","3か月","全期間"], horizontal=True)
-    me_df = filter_period(dfw[dfw["user_id"] == me], period)
+    # --- タブ1：体重グラフ（グラフ → その下に期間ラジオ、その下に身長登録） ---
+    with user_tabs[0]:
+        me_df_all = dfw[dfw["user_id"] == me]
+        period_key = st.session_state.get("period_key", "1か月")
 
-    if me_df.empty:
-        st.info(f"{me}: {period} の範囲にデータがありません。")
-    else:
-        # 最新メトリクス（コンパクトカード）
-        last_row = me_df.sort_values("date").iloc[-1]
-        last_w = float(last_row["weight"])
-        bmi_txt = calc_bmi(last_w, my_h)
-        st.markdown('<div class="card compact-metrics">', unsafe_allow_html=True)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("最新日", f"{last_row['date'].date()}")
-        m2.metric("体重", f"{last_w:.1f} kg")
-        m3.metric("BMI", bmi_txt)
-        st.markdown('</div>', unsafe_allow_html=True)
+        # プレースホルダにグラフを先に表示（期間指定は直後のラジオの値で再描画される）
+        chart_ph = st.empty()
 
-        # グラフ（静的 + フォント一段小さく）
-        fig = px.line(
-            me_df, x="date", y="weight", markers=True,
-            title=f"{me} の体重推移（{period}）",
-            labels={"date":"日付","weight":"体重(kg)"},
-        )
-        fig.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
-        st.plotly_chart(
-            fig, use_container_width=True,
-            config={"staticPlot": True, "displayModeBar": False, "responsive": True}
-        )
-
-    # 身長の登録/更新（BMI用）— 0.1cm刻みの ± ボタン付き
-    with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        c_h1, c_h2 = st.columns(2)
-        with c_h1:
-            st.session_state.height_input = st.number_input(
-                "身長（cm）", value=float(st.session_state.height_input), step=0.1, format="%.1f"
+        # 期間ラジオはグラフの下に表示したいので、先に現在値で描画しておいてから置く
+        def render_chart(key):
+            dplot = filter_period(me_df_all, key)
+            if dplot.empty:
+                chart_ph.info(f"{me}: {key} の範囲にデータがありません。")
+                return
+            fig = px.line(
+                dplot, x="date", y="weight", markers=True,
+                title=f"{me} の体重推移（{key}）",
+                labels={"date":"日付","weight":"体重(kg)"}
             )
-        with c_h2:
-            c_b1, c_b2, _ = st.columns([1,1,3])
-            if c_b1.button("－", key="h_minus"):
-                st.session_state.height_input = round(st.session_state.height_input - 0.1, 1)
-            if c_b2.button("＋", key="h_plus"):
-                st.session_state.height_input = round(st.session_state.height_input + 0.1, 1)
-            st.caption("±0.1cmで微調整できます。")
-
-        if st.button("身長を保存"):
-            try:
-                hval = float(st.session_state.height_input)
-                msg = update_height(me, hval)
-                st.success(msg)
-            except:
-                st.error("数値で入力してください（例: 170.0）")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # 記録を追加（見出し名・サイズ / 2×2レイアウト）
-    st.markdown('<div class="small-title">記録を追加</div>', unsafe_allow_html=True)
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    today = date.today()
-
-    # 2列×2段（スマホでも見やすい）
-    col_left, col_right = st.columns(2)
-    with col_left:
-        y = st.number_input("年", value=today.year, step=1, format="%d")
-        m = st.number_input("月", value=today.month, step=1, format="%d")
-    with col_right:
-        d = st.number_input("日", value=today.day, step=1, format="%d")
-        # 体重（±ボタンなし / 入力欄だけ半分にしたい → 2列化で視覚的に短く）
-        st.session_state.weight_input = st.number_input(
-            "体重(kg)", value=float(st.session_state.weight_input), step=0.1, format="%.1f"
-        )
-
-    if st.button("追加"):
-        msg = add_weight_row(int(y), int(m), int(d), me, st.session_state.weight_input)
-        st.info(msg)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# ===== スペース入れて管理者を下方に配置（半ページ分程度） =====
-st.markdown('<div class="hr-space"></div>', unsafe_allow_html=True)
-
-# --- 管理者（Administrator） ---
-st.divider()
-st.subheader("Administrator")
-
-if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
-
-if not st.session_state.is_admin:
-    code = st.text_input("ADNIN_CODE", type="password")  # ラベル表記をご指定どおりに
-    if st.button("管理者モードに入る"):
-        if code == ADMIN_CODE:
-            st.session_state.is_admin = True
-            st.success("管理者モードに入りました。")
-        else:
-            st.error("合言葉が違います。")
-
-if st.session_state.is_admin:
-    tabs = st.tabs(["ユーザー追加", "全員のグラフ"])
-
-    with tabs[0]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("新規ユーザーを作成します（身長は任意）")
-        nu_col1, nu_col2, nu_col3 = st.columns(3)
-        nu = nu_col1.text_input("new user_id（日本語OK）")
-        npw = nu_col2.text_input("new password", type="password")
-        nh  = nu_col3.text_input("height_cm（任意）")
-        if st.button("ユーザー作成"):
-            st.info(create_user(nu, npw, nh))
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    with tabs[1]:
-        st.markdown('<div class="card">', unsafe_allow_html=True)
-        period_all = st.radio("表示期間（全員）", ["1か月","3か月","全期間"], horizontal=True, key="period_all")
-        dfw_all = filter_period(df_weights(), period_all)
-        if dfw_all.empty:
-            st.info("データがありません。")
-        else:
-            fig_all = px.line(
-                dfw_all, x="date", y="weight", color="user_id", markers=True,
-                title=f"全員の体重推移（{period_all}）",
-                labels={"date":"日付","weight":"体重(kg)","user_id":"ユーザー"}
-            )
-            fig_all.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
-            st.plotly_chart(
-                fig_all, use_container_width=True,
+            fig.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
+            chart_ph.plotly_chart(
+                fig, use_container_width=True,
                 config={"staticPlot": True, "displayModeBar": False, "responsive": True}
             )
-        st.markdown('</div>', unsafe_allow_html=True)
+
+        render_chart(period_key)
+
+        # グラフの下に期間切替
+        period_key = st.radio("表示期間", ["1か月","3か月","全期間"], horizontal=True, index=["1か月","3か月","全期間"].index(period_key))
+        st.session_state.period_key = period_key
+        # 期間が変わったら即再描画
+        render_chart(period_key)
+
+        # さらにその下に身長の登録/更新（±ボタン無しのシンプル入力）
+        with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            init_h = float(my_h) if pd.notna(my_h) else st.session_state.height_input
+            st.session_state.height_input = st.number_input(
+                "身長（cm）", value=float(init_h), step=0.1, format="%.1f"
+            )
+            if st.button("身長を保存"):
+                try:
+                    hval = float(st.session_state.height_input)
+                    msg = update_height(me, hval)
+                    st.success(msg)
+                except:
+                    st.error("数値で入力してください（例: 170.0）")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- タブ2：最新の記録（BMI） ---
+    with user_tabs[1]:
+        me_df = dfw[dfw["user_id"] == me].sort_values("date")
+        if me_df.empty:
+            st.info("記録がありません。")
+        else:
+            last_row = me_df.iloc[-1]
+            last_w = float(last_row["weight"])
+            bmi_txt = calc_bmi(last_w, my_h)
+            st.markdown('<div class="card compact-metrics">', unsafe_allow_html=True)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("最新日", f"{last_row['date'].date()}")
+            c2.metric("体重", f"{last_w:.1f} kg")
+            c3.metric("BMI", bmi_txt)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- タブ
