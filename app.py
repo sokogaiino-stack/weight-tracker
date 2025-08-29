@@ -215,49 +215,43 @@ with st.container():
         else:
             st.error("ログイン失敗")
 
-# --- ログイン後の機能（ユーザー側タブ： 体重グラフ / 最新の記録（BMI） / 記録を追加） ---
+# --- ログイン後の機能（タブ化） ---
 if st.session_state.current_user:
     dfw = df_weights()
     du = df_users()
     me = st.session_state.current_user
     my_h = du.set_index("user_id").get("height_cm", pd.Series()).get(me, None)
 
-    user_tabs = st.tabs(["体重グラフ", "最新の記録（BMI）", "記録を追加"])
+    tabs = st.tabs(["体重グラフ", "最新の記録（BMI）", "記録を追加"])
 
-    # --- タブ1：体重グラフ（グラフ → その下に期間ラジオ、その下に身長登録） ---
-    with user_tabs[0]:
+    # === タブ1：体重グラフ（グラフ → その下に期間切替 → その下に身長登録） ===
+    with tabs[0]:
         me_df_all = dfw[dfw["user_id"] == me]
+
+        # まずグラフ（現在の期間を使って描画）
         period_key = st.session_state.get("period_key", "1か月")
-
-        # プレースホルダにグラフを先に表示（期間指定は直後のラジオの値で再描画される）
-        chart_ph = st.empty()
-
-        # 期間ラジオはグラフの下に表示したいので、先に現在値で描画しておいてから置く
-        def render_chart(key):
-            dplot = filter_period(me_df_all, key)
-            if dplot.empty:
-                chart_ph.info(f"{me}: {key} の範囲にデータがありません。")
-                return
+        dplot = filter_period(me_df_all, period_key)
+        if dplot.empty:
+            st.info(f"{me}: {period_key} の範囲にデータがありません。")
+        else:
             fig = px.line(
                 dplot, x="date", y="weight", markers=True,
-                title=f"{me} の体重推移（{key}）",
+                title=f"{me} の体重推移（{period_key}）",
                 labels={"date":"日付","weight":"体重(kg)"}
             )
             fig.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
-            chart_ph.plotly_chart(
+            st.plotly_chart(
                 fig, use_container_width=True,
                 config={"staticPlot": True, "displayModeBar": False, "responsive": True}
             )
 
-        render_chart(period_key)
-
         # グラフの下に期間切替
-        period_key = st.radio("表示期間", ["1か月","3か月","全期間"], horizontal=True, index=["1か月","3か月","全期間"].index(period_key))
+        period_key = st.radio("表示期間", ["1か月","3か月","全期間"],
+                              horizontal=True,
+                              index=["1か月","3か月","全期間"].index(period_key))
         st.session_state.period_key = period_key
-        # 期間が変わったら即再描画
-        render_chart(period_key)
 
-        # さらにその下に身長の登録/更新（±ボタン無しのシンプル入力）
+        # その下に身長登録/更新（±ボタンなし、0.1刻み入力）
         with st.expander("身長（cm）を登録/更新する（BMI計算用）"):
             st.markdown('<div class="card">', unsafe_allow_html=True)
             init_h = float(my_h) if pd.notna(my_h) else st.session_state.height_input
@@ -273,13 +267,13 @@ if st.session_state.current_user:
                     st.error("数値で入力してください（例: 170.0）")
             st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- タブ2：最新の記録（BMI） ---
-    with user_tabs[1]:
-        me_df = dfw[dfw["user_id"] == me].sort_values("date")
-        if me_df.empty:
+    # === タブ2：最新の記録（BMI） ===
+    with tabs[1]:
+        me_df_sorted = dfw[dfw["user_id"] == me].sort_values("date")
+        if me_df_sorted.empty:
             st.info("記録がありません。")
         else:
-            last_row = me_df.iloc[-1]
+            last_row = me_df_sorted.iloc[-1]
             last_w = float(last_row["weight"])
             bmi_txt = calc_bmi(last_w, my_h)
             st.markdown('<div class="card compact-metrics">', unsafe_allow_html=True)
@@ -289,4 +283,71 @@ if st.session_state.current_user:
             c3.metric("BMI", bmi_txt)
             st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- タブ
+    # === タブ3：記録を追加（元の横並びレイアウトに戻す） ===
+    with tabs[2]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        today = date.today()
+        c1, c2, c3, c4 = st.columns([1,1,1,2])
+        y = c1.number_input("年", value=today.year, step=1, format="%d")
+        m = c2.number_input("月", value=today.month, step=1, format="%d")
+        d = c3.number_input("日", value=today.day, step=1, format="%d")
+        st.session_state.weight_input = c4.number_input(
+            "体重(kg)", value=float(st.session_state.weight_input), step=0.1, format="%.1f"
+        )
+        if st.button("追加"):
+            msg = add_weight_row(int(y), int(m), int(d), me, st.session_state.weight_input)
+            st.info(msg)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# ===== スペース入れて管理者を下方に配置（半ページ分程度） =====
+st.markdown('<div class="hr-space"></div>', unsafe_allow_html=True)
+
+# --- 管理者（Administrator） ---
+st.divider()
+st.subheader("Administrator")
+
+if "is_admin" not in st.session_state:
+    st.session_state.is_admin = False
+
+if not st.session_state.is_admin:
+    code = st.text_input("ADNIN_CODE", type="password")  # ご指定どおりの表記
+    if st.button("管理者モードに入る"):
+        if code == ADMIN_CODE:
+            st.session_state.is_admin = True
+            st.success("管理者モードに入りました。")
+        else:
+            st.error("合言葉が違います。")
+
+if st.session_state.is_admin:
+    tabs_admin = st.tabs(["ユーザー追加", "全員のグラフ"])
+
+    with tabs_admin[0]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown("新規ユーザーを作成します（身長は任意）")
+        nu_col1, nu_col2, nu_col3 = st.columns(3)
+        nu = nu_col1.text_input("new user_id（日本語OK）")
+        npw = nu_col2.text_input("new password", type="password")
+        nh  = nu_col3.text_input("height_cm（任意）")
+        if st.button("ユーザー作成"):
+            st.info(create_user(nu, npw, nh))
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    with tabs_admin[1]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        period_all = st.radio("表示期間（全員）", ["1か月","3か月","全期間"],
+                              horizontal=True, key="period_all")
+        dfw_all = filter_period(df_weights(), period_all)
+        if dfw_all.empty:
+            st.info("データがありません。")
+        else:
+            fig_all = px.line(
+                dfw_all, x="date", y="weight", color="user_id", markers=True,
+                title=f"全員の体重推移（{period_all}）",
+                labels={"date":"日付","weight":"体重(kg)","user_id":"ユーザー"}
+            )
+            fig_all.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
+            st.plotly_chart(
+                fig_all, use_container_width=True,
+                config={"staticPlot": True, "displayModeBar": False, "responsive": True}
+            )
+        st.markdown('</div>', unsafe_allow_html=True)
