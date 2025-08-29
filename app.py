@@ -1,12 +1,46 @@
-import streamlit as st
+# ===== favicon 強制セット（最上部で実行） =====
 from PIL import Image
+import base64, time
+import streamlit as st
 
 st.set_page_config(
     page_title="Weight-Trakcer",
-    page_icon=Image.open("favicon.png"),  # ←ここで差し替え
-    layout="centered"
+    page_icon=Image.open("favicon.png"),   # リポジトリ直下の favicon.png を使用
+    layout="centered",
 )
 
+def force_favicon(png_path: str):
+    with open(png_path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("utf-8")
+    ver = int(time.time())  # キャッシュバスター
+    st.markdown(
+        f"""
+        <link rel="icon" type="image/png" href="data:image/png;base64,{b64}?v={ver}">
+        <link rel="apple-touch-icon" href="data:image/png;base64,{b64}?v={ver}">
+        <script>
+        (function() {{
+          const href = "data:image/png;base64,{b64}?v={ver}";
+          function setLink(rel) {{
+            let link = document.querySelector(`link[rel='${{rel}}']`);
+            if (!link) {{
+              link = document.createElement('link');
+              link.rel = rel;
+              document.head.appendChild(link);
+            }}
+            link.type = 'image/png';
+            link.href = href;
+          }}
+          setLink('icon');
+          setLink('apple-touch-icon');
+        }})();
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
+
+force_favicon("favicon.png")
+
+# ===== ここから通常のアプリ本体 =====
 import pandas as pd
 import plotly.express as px
 import bcrypt
@@ -14,11 +48,6 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
-
-# --------------------------------
-# 基本設定
-# --------------------------------
-st.set_page_config(page_title="Weight-Trakcer", page_icon="📈", layout="centered")
 
 # --------------------------------
 # CSS（カード/余白/モバイル調整）
@@ -236,7 +265,7 @@ with st.container():
         else:
             st.error("ログイン失敗")
 
-# ここで余白を追加（ご要望）
+# ここで余白を追加
 st.markdown('<div class="vspace"></div>', unsafe_allow_html=True)
 
 # --- USER AREA（ラジオで安定切替） ---
@@ -394,7 +423,7 @@ if st.session_state.is_admin:
                             config={"staticPlot": True, "displayModeBar": False})
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 全員の最新情報（新規）
+    # 全員の最新情報
     with tabs_admin[2]:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         u = df_users()
