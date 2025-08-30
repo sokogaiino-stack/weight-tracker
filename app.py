@@ -1,4 +1,4 @@
-# ===== favicon 強制セット（最上部で実行） =====
+# ===== favicon 強制セット（最上部で実行）=====
 from PIL import Image
 import base64, time
 import streamlit as st
@@ -40,7 +40,7 @@ def force_favicon(png_path: str):
 
 force_favicon("favicon.png")
 
-# ===== ここから通常のアプリ本体 =====
+# ====== ここから通常のアプリ本体 ======
 import pandas as pd
 import plotly.express as px
 import bcrypt
@@ -74,6 +74,41 @@ h3 { font-size: 1.0rem; margin-bottom: .4rem; }
 .hr-space { height: 42vh; }   /* 管理者をページ下方へ */
 @media (max-width: 480px) {
   .hr-space { height: 36vh; }
+}
+
+/* ---- 個別データの最新情報：横並びミニカード ---- */
+.metrics-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.metrics-row .mcard {
+  flex: 1 1 0;
+  min-width: 140px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 6px 20px rgba(2,6,23,.06);
+  padding: 10px 12px;
+  text-align: center;
+  background: #fff;
+}
+.metrics-row .mlabel {
+  font-size: 0.70rem;       /* 小さめ（ご要望） */
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+.metrics-row .mvalue {
+  font-size: 0.85rem;       /* 小さめ（ご要望） */
+  font-weight: 700;
+}
+@media (max-width: 480px) {
+  .metrics-row {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .metrics-row .mcard {
+    flex: 0 0 auto;   /* 横一列維持（縦積みしない） */
+  }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -390,10 +425,10 @@ if not st.session_state.is_admin:
             st.error("合言葉が違います。")
 
 if st.session_state.is_admin:
-    # 🔽 タブの並びを変更
+    # 並び順：個別データ / 全員のグラフ / 全員の最新情報 / ユーザー追加
     tabs_admin = st.tabs(["個別データ", "全員のグラフ", "全員の最新情報", "ユーザー追加"])
 
-    # 個別データ
+    # --- 個別データ ---
     with tabs_admin[0]:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         u = df_users()
@@ -420,7 +455,7 @@ if st.session_state.is_admin:
                 st.plotly_chart(fig_u, use_container_width=True,
                                 config={"staticPlot": True, "displayModeBar": False})
 
-            # 最新情報
+            # 最新情報（ミニカード横並び）
             w_u_all = w[w["user_id"] == sel_uid].sort_values("date")
             if w_u_all.empty:
                 st.info("最新情報：体重記録がありません。")
@@ -433,26 +468,35 @@ if st.session_state.is_admin:
                 bmi_txt = calc_bmi(float(last["weight"]), h) if pd.notna(h) else "未設定"
 
                 st.markdown("**最新情報**", unsafe_allow_html=True)
-                # 🔽 metric のフォントサイズを小さくするCSS
-                st.markdown("""
-                <style>
-                [data-testid="stMetricValue"] {
-                    font-size: 0.8rem !important;
-                }
-                [data-testid="stMetricLabel"] {
-                    font-size: 0.7rem !important;
-                }
-                </style>
-                """, unsafe_allow_html=True)
+                user_val = sel_uid
+                date_val = f"{last['date'].date()}"
+                weight_val = f"{float(last['weight']):.1f} kg"
+                bmi_val = bmi_txt
 
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("ユーザー", sel_uid)
-                c2.metric("最新日", f"{last['date'].date()}")
-                c3.metric("体重", f"{float(last['weight']):.1f} kg")
-                c4.metric("BMI", bmi_txt)
+                cards_html = f"""
+                <div class="metrics-row">
+                  <div class="mcard">
+                    <div class="mlabel">ユーザー</div>
+                    <div class="mvalue">{user_val}</div>
+                  </div>
+                  <div class="mcard">
+                    <div class="mlabel">最新日</div>
+                    <div class="mvalue">{date_val}</div>
+                  </div>
+                  <div class="mcard">
+                    <div class="mlabel">体重</div>
+                    <div class="mvalue">{weight_val}</div>
+                  </div>
+                  <div class="mcard">
+                    <div class="mlabel">BMI</div>
+                    <div class="mvalue">{bmi_val}</div>
+                  </div>
+                </div>
+                """
+                st.markdown(cards_html, unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 全員のグラフ
+    # --- 全員のグラフ ---
     with tabs_admin[1]:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         period_all = st.radio("表示期間（全員）", ["1か月","3か月","全期間"],
@@ -471,7 +515,7 @@ if st.session_state.is_admin:
                             config={"staticPlot": True, "displayModeBar": False})
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # 全員の最新情報
+    # --- 全員の最新情報 ---
     with tabs_admin[2]:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         u = df_users()
@@ -492,7 +536,7 @@ if st.session_state.is_admin:
         st.dataframe(df_latest, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # ユーザー追加
+    # --- ユーザー追加 ---
     with tabs_admin[3]:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("新規ユーザーを作成します（身長は任意）")
