@@ -5,14 +5,14 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Weight-Trakcer",
-    page_icon=Image.open("favicon.png"),   # リポジトリ直下の favicon.png を使用
+    page_icon=Image.open("favicon.png"),   # リポジトリ直下の favicon.png
     layout="centered",
 )
 
 def force_favicon(png_path: str):
     with open(png_path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode("utf-8")
-    ver = int(time.time())  # キャッシュバスター
+    ver = int(time.time())
     st.markdown(
         f"""
         <link rel="icon" type="image/png" href="data:image/png;base64,{b64}?v={ver}">
@@ -390,7 +390,8 @@ if not st.session_state.is_admin:
             st.error("合言葉が違います。")
 
 if st.session_state.is_admin:
-    tabs_admin = st.tabs(["ユーザー追加", "全員のグラフ", "全員の最新情報"])
+    # ここに「個別データ」を追加
+    tabs_admin = st.tabs(["ユーザー追加", "全員のグラフ", "全員の最新情報", "個別データ"])
 
     # ユーザー追加
     with tabs_admin[0]:
@@ -442,4 +443,51 @@ if st.session_state.is_admin:
                          f"{h:.1f}" if pd.notna(h) else "-", bmi])
         df_latest = pd.DataFrame(rows, columns=["user", "最新日", "体重(kg)", "身長(cm)", "BMI"])
         st.dataframe(df_latest, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # 個別データ（新規）
+    with tabs_admin[3]:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        u = df_users()
+        w = df_weights()
+        user_list = sorted(u["user_id"].tolist()) if not u.empty else []
+        if len(user_list) == 0:
+            st.info("users シートにユーザーがいません。")
+        else:
+            colsel, colper = st.columns([2, 2])
+            sel_uid = colsel.selectbox("ユーザーを選択", user_list, key="admin_pick_user")
+            period_k = colper.radio("表示期間", ["1か月","3か月","全期間"], horizontal=True, key="admin_pick_period")
+
+            # グラフ
+            per_df = filter_period(w[w["user_id"] == sel_uid].sort_values("date"), period_k)
+            if per_df.empty:
+                st.info(f"{sel_uid} の {period_k} データがありません。")
+            else:
+                fig_u = px.line(
+                    per_df, x="date", y="weight", markers=True,
+                    title=f"{sel_uid} の体重推移（{period_k}）",
+                    labels={"date":"日付","weight":"体重(kg)"}
+                )
+                fig_u.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
+                st.plotly_chart(fig_u, use_container_width=True,
+                                config={"staticPlot": True, "displayModeBar": False})
+
+            # 最新情報
+            w_u_all = w[w["user_id"] == sel_uid].sort_values("date")
+            if w_u_all.empty:
+                st.info("最新情報：体重記録がありません。")
+            else:
+                last = w_u_all.iloc[-1]
+                # 身長
+                try:
+                    h = u.set_index("user_id").get("height_cm").get(sel_uid, None)
+                except KeyError:
+                    h = None
+                bmi_txt = calc_bmi(float(last["weight"]), h) if pd.notna(h) else "未設定"
+                st.markdown("**最新情報**")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("ユーザー", sel_uid)
+                c2.metric("最新日", f"{last['date'].date()}")
+                c3.metric("体重", f"{float(last['weight']):.1f} kg")
+                c4.metric("BMI", bmi_txt)
         st.markdown('</div>', unsafe_allow_html=True)
