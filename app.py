@@ -5,7 +5,7 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Weight-Trakcer",
-    page_icon=Image.open("favicon.png"),   # リポジトリ直下の favicon.png
+    page_icon=Image.open("favicon.png"),
     layout="centered",
 )
 
@@ -76,39 +76,30 @@ h3 { font-size: 1.0rem; margin-bottom: .4rem; }
   .hr-space { height: 36vh; }
 }
 
-/* ---- 個別データの最新情報：横並びミニカード ---- */
+/* ---- 個別データの最新情報：小さめ横一列（スクロール無しで収める） ---- */
 .metrics-row {
   display: flex;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 4px;
   margin-top: 6px;
 }
 .metrics-row .mcard {
   flex: 1 1 0;
-  min-width: 140px;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid #e5e7eb;
-  box-shadow: 0 6px 20px rgba(2,6,23,.06);
-  padding: 10px 12px;
+  box-shadow: 0 4px 12px rgba(2,6,23,.05);
+  padding: 6px 4px;
   text-align: center;
   background: #fff;
 }
 .metrics-row .mlabel {
-  font-size: 0.70rem;       /* 小さめ（ご要望） */
+  font-size: 0.55rem;   /* 小さめ */
   color: #6b7280;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 .metrics-row .mvalue {
-  font-size: 0.85rem;       /* 小さめ（ご要望） */
+  font-size: 0.70rem;   /* 小さめで全幅に収める */
   font-weight: 700;
-}
-@media (max-width: 480px) {
-  .metrics-row {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .metrics-row .mcard {
-    flex: 0 0 auto;   /* 横一列維持（縦積みしない） */
-  }
 }
 </style>
 """, unsafe_allow_html=True)
@@ -385,6 +376,7 @@ if st.session_state.current_user:
     # === 身長を更新（独立タブ / 身長：□ □ □ . □ cm） ===
     elif user_tab == "身長を更新":
         st.markdown('<div class="card">', unsafe_allow_html=True)
+        # 既存の身長を初期値に
         base_h = float(my_h) if pd.notna(my_h) else st.session_state.height_input
         ih_hund, ih_tens, ih_ones, ih_tenths = init_height_digits(base_h)
 
@@ -451,11 +443,11 @@ if st.session_state.is_admin:
                     title=f"{sel_uid} の体重推移（{period_k}）",
                     labels={"date":"日付","weight":"体重(kg)"}
                 )
-                fig_u.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=13))
+                fig_u.update_layout(margin=dict(l=8, r=8, t=48, b=8), font=dict(size=12))
                 st.plotly_chart(fig_u, use_container_width=True,
                                 config={"staticPlot": True, "displayModeBar": False})
 
-            # 最新情報（ミニカード横並び）
+            # 最新情報（小さめ横一列カード）
             w_u_all = w[w["user_id"] == sel_uid].sort_values("date")
             if w_u_all.empty:
                 st.info("最新情報：体重記録がありません。")
@@ -475,22 +467,10 @@ if st.session_state.is_admin:
 
                 cards_html = f"""
                 <div class="metrics-row">
-                  <div class="mcard">
-                    <div class="mlabel">ユーザー</div>
-                    <div class="mvalue">{user_val}</div>
-                  </div>
-                  <div class="mcard">
-                    <div class="mlabel">最新日</div>
-                    <div class="mvalue">{date_val}</div>
-                  </div>
-                  <div class="mcard">
-                    <div class="mlabel">体重</div>
-                    <div class="mvalue">{weight_val}</div>
-                  </div>
-                  <div class="mcard">
-                    <div class="mlabel">BMI</div>
-                    <div class="mvalue">{bmi_val}</div>
-                  </div>
+                  <div class="mcard"><div class="mlabel">ユーザー</div><div class="mvalue">{user_val}</div></div>
+                  <div class="mcard"><div class="mlabel">最新日</div><div class="mvalue">{date_val}</div></div>
+                  <div class="mcard"><div class="mlabel">体重</div><div class="mvalue">{weight_val}</div></div>
+                  <div class="mcard"><div class="mlabel">BMI</div><div class="mvalue">{bmi_val}</div></div>
                 </div>
                 """
                 st.markdown(cards_html, unsafe_allow_html=True)
