@@ -5,7 +5,7 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Weight-Trakcer",
-    page_icon=Image.open("favicon.png"),
+    page_icon=Image.open("favicon.png"),   # リポジトリ直下の favicon.png
     layout="centered",
 )
 
@@ -40,7 +40,7 @@ def force_favicon(png_path: str):
 
 force_favicon("favicon.png")
 
-# ====== ここから通常のアプリ本体 ======
+# ===== ここから通常のアプリ本体 =====
 import pandas as pd
 import plotly.express as px
 import bcrypt
@@ -131,10 +131,14 @@ def normalize_uid(s: str) -> str:
 def df_users() -> pd.DataFrame:
     u = pd.DataFrame(users_ws.get_all_records())
     if u.empty:
-        return pd.DataFrame(columns=["user_id","password_hash","height_cm"])
+        return pd.DataFrame(columns=["user_id","password_hash","plain_password","height_cm"])
+    # 互換: plain_password 無い既存表でも列を用意しておく
+    if "plain_password" not in u.columns:
+        u["plain_password"] = ""
     if "height_cm" not in u.columns:
         u["height_cm"] = None
     u["user_id"] = u["user_id"].map(normalize_uid)
+    # 数値
     u["height_cm"] = pd.to_numeric(u["height_cm"], errors="coerce")
     return u
 
@@ -195,6 +199,7 @@ def create_user(user_id: str, plain_password: str, height_cm_input: str):
     for hname in headers:
         if hname == "user_id": row.append(user_id)
         elif hname == "password_hash": row.append(hashed)
+        elif hname == "plain_password": row.append(plain_password)   # ← 追加保存
         elif hname == "height_cm": row.append(h if h != "" else "")
         else: row.append("")
     users_ws.append_row(row)
@@ -376,7 +381,6 @@ if st.session_state.current_user:
     # === 身長を更新（独立タブ / 身長：□ □ □ . □ cm） ===
     elif user_tab == "身長を更新":
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        # 既存の身長を初期値に
         base_h = float(my_h) if pd.notna(my_h) else st.session_state.height_input
         ih_hund, ih_tens, ih_ones, ih_tenths = init_height_digits(base_h)
 
@@ -495,24 +499,31 @@ if st.session_state.is_admin:
                             config={"staticPlot": True, "displayModeBar": False})
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- 全員の最新情報 ---
+    # --- 全員の最新情報（※ plain_password 表示） ---
     with tabs_admin[2]:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         u = df_users()
         w = df_weights()
         rows=[]
-        for uid in u["user_id"]:
-            w_u = w[w["user_id"] == uid].sort_values("date")
+        for uid_ in u["user_id"]:
+            w_u = w[w["user_id"] == uid_].sort_values("date")
             if not w_u.empty:
                 last_w = float(w_u.iloc[-1]["weight"])
                 last_d = w_u.iloc[-1]["date"].date()
             else:
                 last_w, last_d = None, None
-            h = u.set_index("user_id").get("height_cm").get(uid, None)
+            h = u.set_index("user_id").get("height_cm").get(uid_, None)
+            pw_plain = u.set_index("user_id").get("plain_password").get(uid_, None)
             bmi = calc_bmi(last_w, h) if last_w is not None and pd.notna(h) else "未"
-            rows.append([uid, last_d, f"{last_w:.1f}" if last_w is not None else "-", 
-                         f"{h:.1f}" if pd.notna(h) else "-", bmi])
-        df_latest = pd.DataFrame(rows, columns=["user", "最新日", "体重(kg)", "身長(cm)", "BMI"])
+            rows.append([
+                uid_,
+                (pw_plain if pw_plain else "-"),   # 平文パスワード表示
+                last_d,
+                f"{last_w:.1f}" if last_w is not None else "-", 
+                f"{h:.1f}" if pd.notna(h) else "-", 
+                bmi
+            ])
+        df_latest = pd.DataFrame(rows, columns=["user", "password", "最新日", "体重(kg)", "身長(cm)", "BMI"])
         st.dataframe(df_latest, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
